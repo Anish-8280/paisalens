@@ -1,0 +1,7 @@
+*
+!app/
+!data/sample/
+!scripts/generate_synthetic_data.py
+!ui/
+!requirements.lock
+**/__pycache__/

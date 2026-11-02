@@ -2,7 +2,7 @@
 
 Ask questions about your own money in plain English and get exact numbers, with the SQL that produced them.
 
-**Status: early v1, command line only.** This covers numeric questions over bank and card transactions. RAG, the API, the web UI and charts aren't built yet ([Roadmap](#roadmap)).
+**Status: early v1.** This covers numeric questions over bank and card transactions, through a small web page, an HTTP API or the command line. RAG and charts aren't built yet ([Roadmap](#roadmap)).
 
 > The repo contains synthetic data only. Keep real statements out of it.
 
@@ -29,6 +29,28 @@ python -m app.agent.loop "How much did I spend on food delivery last month?"
 
 The sample data ends in October 2026, so set `AS_OF_DATE=2026-11-02` in `.env` for relative dates to work against it.
 
+To run the web page and API locally, start the service and open http://localhost:8000:
+
+```bash
+uvicorn app.main:app
+```
+
+Or run the production image with Docker, using the key in `.env`:
+
+```bash
+docker compose up --build
+```
+
+### API
+
+```bash
+curl -s http://localhost:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Top 5 merchants by spend in September 2026"}'
+```
+
+The response has `answer`, `status` (`ok`, `refused`, `step_limit` or `max_tokens`), `sql`, `steps` and `usage`. `GET /health` checks the database and never calls the model, so it's free to probe.
+
 ### Using your own statement
 
 Export a CSV with the columns `date` (DD/MM/YYYY), `account`, `narration`, `debit` and `credit`. Pass your name so transfers to yourself are recognised:
@@ -38,6 +60,31 @@ python -m app.ingest.statements my_statement.csv --self-name "YOUR NAME"
 ```
 
 Re-importing a file, or importing statements that overlap, doesn't create duplicates. Merchant rules are in `app/ingest/categorise.py`, and anything they don't recognise is filed under `Other` or `People`.
+
+## Deploying
+
+The `Dockerfile` builds one self-contained image: the service, the web page and a read-only database of the synthetic data. It runs on any host that can run a container and supplies HTTPS. It listens on `$PORT` (default 8000), and `/health` works as the health check path.
+
+> **This is a public demo setup. There's no login**, so anyone who can reach the service can ask about whatever data it holds. Don't deploy it with real statements.
+
+Before making it public:
+
+1. **Set a spend limit on the API key** in the Anthropic Console, using a key used only for this service. Limits inside the app reset whenever the service restarts, so this is your real cap.
+2. **Run exactly one instance.** Usage limits are held in memory, so each extra instance gets its own allowance.
+3. **Set `FORWARDED_ALLOW_IPS` for your host.** Without it the app sees every visitor as the host's proxy, so all visitors share one per-minute limit. Use your proxy's address range. Use `*` only if the proxy is the sole way to reach the container, because otherwise visitors can fake their address to dodge the limit.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | none, required for `/ask` | Set it as a secret on your host. Never put it in the image. |
+| `MODEL` | `claude-sonnet-5-5` | Claude model to use |
+| `RATE_LIMIT_PER_MINUTE` | `5` | Questions per visitor per minute |
+| `DAILY_QUESTION_LIMIT` | `200` | Questions per day across all visitors |
+| `MAX_CONCURRENT_QUESTIONS` | `4` | Questions handled at once. Extra ones get a 503. |
+| `AS_OF_DATE` | `2026-11-02` in the image | The demo's fixed "today", matching its static data |
+| `FORWARDED_ALLOW_IPS` | `127.0.0.1` | Proxies trusted to report the visitor's address |
+| `AGENT_MAX_STEPS` | `8` | Model calls allowed per question |
+
+Logs record status, timing and token counts per question, but not the questions or answers.
 
 ## How a question is answered
 
@@ -52,6 +99,8 @@ Re-importing a file, or importing statements that overlap, doesn't create duplic
 - **Limits are visible.** A query over the row limit is flagged as truncated rather than silently cut short, and queries time out.
 - **Raw narrations don't reach the model.** The views leave out the narration text, which holds account numbers, UPI IDs and remarks anyone can write by sending you ₹1.
 - **The agent can't act.** It has no write or network tools, so injected text has little to work with.
+- **The page can't leak through markup.** Answers are shown as plain text, and a strict Content Security Policy blocks images, inline scripts and outside connections.
+- **The container is locked down.** The image runs as a non-root user with a read-only database, and `compose.yaml` adds a read-only filesystem and drops Linux capabilities.
 
 ### What does leave your machine
 
@@ -90,8 +139,8 @@ The tests make no API calls. The agent loop runs against a scripted fake client,
 - [ ] Pseudonymise people's names before they reach the model
 - [ ] Conversation memory for follow-up questions
 - [ ] RAG over fund factsheets and finance documents, tagged by financial year and tax regime
-- [ ] Charts, FastAPI service and web UI
-- [ ] Docker and CI
+- [ ] Charts
+- [ ] Login, before any deployment holds real data
 - [ ] PDF statement parsers
 - [ ] Recurring payment detection
 - [ ] Mutual fund overlap (needs fund portfolio data, which CAS statements don't include)

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PaisaLens</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>PaisaLens</h1>
+      <p>Ask about spending in plain English and get the exact figure, with the SQL behind it.</p>
+    </header>
+
+    <p class="notice">This demo uses a made-up person's transactions from November 2025 to October 2026. "Today" is fixed at 2 November 2026.</p>
+
+    <form id="ask-form">
+      <label for="question">Your question</label>
+      <textarea id="question" rows="2" maxlength="500" required placeholder="How much did I spend on food delivery last month?"></textarea>
+      <button id="submit" type="submit">Ask</button>
+    </form>
+
+    <section aria-label="Example questions" class="examples">
+      <button type="button" class="example">What were my top 5 merchants by spend in September 2026?</button>
+      <button type="button" class="example">How much did I actually spend on Amazon overall, after refunds?</button>
+      <button type="button" class="example">How much have I invested this financial year?</button>
+    </section>
+
+    <section id="result" aria-live="polite" hidden>
+      <p id="answer"></p>
+      <details id="sql-details" hidden>
+        <summary>SQL used</summary>
+        <pre id="sql"></pre>
+      </details>
+    </section>
+
+    <footer>Insights about the data shown here, not financial, tax or investment advice.</footer>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      - run: pytest
+      - name: Check benchmark gold SQL
+        run: |
+          python -m app.ingest.statements data/sample/transactions.csv
+          python eval/run_eval.py --mode gold --split all
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t paisalens .
+      # No API key is needed: /health never calls the model.
+      - name: Smoke test the container
+        run: |
+          docker run -d --name paisalens -p 8000:8000 --read-only --tmpfs /tmp paisalens
+          for attempt in $(seq 1 20); do
+            curl -fsS http://127.0.0.1:8000/health && exit 0
+            sleep 1
+          done
+          docker logs paisalens
+          exit 1

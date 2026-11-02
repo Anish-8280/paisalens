@@ -1,0 +1,19 @@
+services:
+  paisalens:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?Set ANTHROPIC_API_KEY in .env}
+      MODEL: ${MODEL:-claude-sonnet-5-5}
+      AS_OF_DATE: ${AS_OF_DATE:-2026-11-02}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-5}
+      DAILY_QUESTION_LIMIT: ${DAILY_QUESTION_LIMIT:-200}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
