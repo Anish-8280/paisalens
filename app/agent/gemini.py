@@ -66,10 +66,14 @@ def _text_of(parts: list[dict]) -> str:
     return "\n".join(part["text"] for part in parts if "text" in part and not part.get("thought")).strip()
 
 
-def ask(question: str, settings: Settings, transport=None) -> Answer:
+def ask(question: str, settings: Settings, transport=None, history: list[tuple[str, str]] = ()) -> Answer:
     transport = transport or default_transport
     as_of = settings.as_of or date.today().isoformat()
-    contents = [{"role": "user", "parts": [{"text": user_turn(question, as_of)}]}]
+    contents = []
+    for earlier_question, earlier_answer in history:
+        contents.append({"role": "user", "parts": [{"text": earlier_question}]})
+        contents.append({"role": "model", "parts": [{"text": earlier_answer}]})
+    contents.append({"role": "user", "parts": [{"text": user_turn(question, as_of)}]})
     answer = Answer(text="")
 
     while answer.steps < settings.max_steps:

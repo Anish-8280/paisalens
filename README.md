@@ -2,7 +2,7 @@
 
 Ask questions about your own money in plain English and get exact numbers, with the SQL that produced them.
 
-**Status: early v1.** You can upload PDF or CSV statements, browse a stats dashboard, spot recurring payments, correct categories and ask numeric questions, through a web page, an HTTP API or the command line. Document search (RAG) isn't built yet ([Roadmap](#roadmap)).
+**Status: early v1.** You can start separate analyses from PDF or CSV statements, browse a dashboard, spot recurring payments, correct categories and ask numeric questions with follow-ups, through a web page, an HTTP API or the command line. Document search (RAG) isn't built yet ([Roadmap](#roadmap)).
 
 > The repo contains synthetic data only. Keep real statements out of it.
 
@@ -49,18 +49,18 @@ curl -s http://localhost:8000/ask \
   -d '{"question": "Top 5 merchants by spend in September 2026"}'
 ```
 
-The response has `answer`, `status` (`ok`, `refused`, `step_limit` or `max_tokens`), `sql`, `steps` and `usage`. `GET /health` checks the database and never calls the model, so it's free to probe.
+The response has `answer`, `status` (`ok`, `refused`, `step_limit` or `max_tokens`), `sql`, `steps`, `usage` and, for multi-row results, a `table`. Send earlier turns in `history` for follow-up questions. `GET /health` checks the database and never calls the model, so it's free to probe.
 
 ### Using your own statement
 
-Run the app with `docker compose up --build`, open http://localhost:8000 and use the **Upload** tab. It takes PDF or CSV statements, and switches between **Demo data** and **My data** so the two never mix.
+Run the app with `docker compose up --build`, open http://localhost:8000 and click **+ New analysis**. It takes PDF or CSV statements. Each analysis is stored separately, so its data never mixes with another, and you can add more statements under **Manage**.
 
 - **Formats:** it finds the date, description and debit/credit (or amount) columns itself, and handles password-protected PDFs. Scanned PDFs aren't supported.
 - **Checking the import:** if the statement has a running balance, each row is checked against it and any mismatch is reported. Still compare the totals with your statement, because this is tested on generated statements and each bank's layout differs.
 - **Repeat imports:** re-importing a file, or statements that overlap, doesn't create duplicates.
 - **Categories:** merchant rules are in `app/ingest/categorise.py`, and anything they don't recognise is filed under `Other` or `People`. Correct a merchant's category on the **Transactions** tab, and the correction is reapplied to later uploads.
 
-**Privacy:** the uploaded file isn't kept, only the transactions read from it. They stay in a Docker volume on your computer, and **Delete my data** on the Upload tab removes them. Stats and transactions use no AI model. Questions on your own data are off unless you set `ALLOW_REAL_DATA_TO_MODEL=true`, because they send results to your AI provider.
+**Privacy:** the uploaded file isn't kept, only the transactions read from it. They stay in a Docker volume on your computer, and **Delete analysis** under **Manage** removes them. Overview and Transactions use no AI model. Questions are off for each new analysis until you turn them on, because they send results to your AI provider.
 
 ## Deploying
 

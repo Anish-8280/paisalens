@@ -4,6 +4,9 @@ from pathlib import Path
 
 from app.sql.guardrails import GuardrailError, QueryResult, run_query
 
+MAX_TABLE_ROWS = 50
+MAX_CHART_POINTS = 24
+
 QUERY_TOOL = {
     "name": "query_transactions",
     "description": (
@@ -47,6 +50,42 @@ def serialise(result: QueryResult) -> str:
                 record[column.removesuffix("_paise") + "_rupees"] = format_inr(round(value))
         rows.append(record)
     return json.dumps({"row_count": len(rows), "truncated": result.truncated, "rows": rows}, ensure_ascii=False)
+
+
+def _column_label(column: str) -> str:
+    return column.removesuffix("_paise").replace("_", " ").strip().capitalize() or column
+
+
+def present_result(result: QueryResult | None) -> dict | None:
+    """Turn a multi-row query result into a table, and a chart when it's labels against one money column.
+
+    Built directly from the database result, so what's shown can't differ from what was computed.
+    """
+    if result is None or len(result.rows) < 2:
+        return None
+    keep = [index for index, column in enumerate(result.columns) if column.lower() != "id"]
+    money = [index for index in keep if result.columns[index].endswith("_paise")]
+
+    def display(index, value):
+        if value is None:
+            return ""
+        return format_inr(round(value)) if index in money and isinstance(value, (int, float)) else value
+
+    presented = {
+        "columns": [_column_label(result.columns[index]) for index in keep],
+        "numeric": [isinstance(result.rows[0][index], (int, float)) for index in keep],
+        "rows": [[display(index, row[index]) for index in keep] for row in result.rows[:MAX_TABLE_ROWS]],
+        "truncated": result.truncated or len(result.rows) > MAX_TABLE_ROWS,
+        "chart": None,
+    }
+    labels = [index for index in keep if isinstance(result.rows[0][index], str)]
+    if len(keep) == 2 and len(money) == 1 and len(labels) == 1 and len(result.rows) <= MAX_CHART_POINTS:
+        presented["chart"] = {
+            "labels": [str(row[labels[0]]) for row in result.rows],
+            "values_paise": [round(row[money[0]] or 0) for row in result.rows],
+            "series": _column_label(result.columns[money[0]]),
+        }
+    return presented
 
 
 def run_tool(db_path: str | Path, sql: str, row_limit: int, timeout_seconds: float) -> tuple[str, QueryResult | None]:

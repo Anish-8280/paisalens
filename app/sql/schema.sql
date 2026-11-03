@@ -23,6 +23,12 @@ CREATE TABLE IF NOT EXISTS category_overrides (
     category TEXT NOT NULL
 );
 
+-- Name and settings of an analysis. Unused in the example database.
+CREATE TABLE IF NOT EXISTS analysis_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 -- The views below are the only objects the agent can query. None expose `narration`,
 -- which keeps raw bank text (account numbers, UPI IDs, attacker-written remarks) away
 -- from the model.

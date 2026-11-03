@@ -13,7 +13,6 @@ services:
       RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-5}
       DAILY_QUESTION_LIMIT: ${DAILY_QUESTION_LIMIT:-200}
       ENABLE_UPLOADS: "true"
-      ALLOW_REAL_DATA_TO_MODEL: ${ALLOW_REAL_DATA_TO_MODEL:-false}
     volumes:
       - userdata:/userdata
     restart: unless-stopped

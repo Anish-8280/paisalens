@@ -78,14 +78,19 @@ def execute_query(sql: str, settings: Settings, answer: Answer) -> tuple[str, bo
     return text, result is None
 
 
-def ask(question: str, settings: Settings, client=None) -> Answer:
+def ask(question: str, settings: Settings, client=None, history: list[tuple[str, str]] = ()) -> Answer:
+    """`history` is earlier (question, answer) pairs in this conversation, oldest first."""
     if is_gemini_model(settings.model):
         from app.agent import gemini  # imported here because gemini.py builds on this module
-        return gemini.ask(question, settings, client)
+        return gemini.ask(question, settings, client, history)
 
     client = client or anthropic.Anthropic()
     as_of = settings.as_of or date.today().isoformat()
-    messages = [{"role": "user", "content": user_turn(question, as_of)}]
+    messages = []
+    for earlier_question, earlier_answer in history:
+        messages.append({"role": "user", "content": earlier_question})
+        messages.append({"role": "assistant", "content": earlier_answer})
+    messages.append({"role": "user", "content": user_turn(question, as_of)})
     answer = Answer(text="")
 
     while answer.steps < settings.max_steps:

@@ -4,148 +4,205 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PaisaLens</title>
-  <link rel="stylesheet" href="/static/styles.css?v=2">
+  <link rel="stylesheet" href="/static/styles.css?v=4">
 </head>
 <body>
-  <main>
-    <header class="top">
-      <div>
-        <h1>PaisaLens</h1>
-        <p>See where your money goes, and ask about it in plain English.</p>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">₹</span>
+        <span class="brand-name">PaisaLens</span>
       </div>
-      <label id="dataset-control" class="inline-field" hidden>Data
-        <select id="dataset">
-          <option value="demo">Demo data</option>
-          <option value="mine">My data</option>
-        </select>
-      </label>
-    </header>
+      <button type="button" id="new-analysis" class="new-analysis" hidden>
+        <span class="plus" aria-hidden="true">+</span>
+        <span>New analysis</span>
+      </button>
+      <nav aria-label="Analyses" id="analysis-list" class="analysis-list"></nav>
+    </aside>
 
-    <nav aria-label="Sections" class="tabs">
-      <button type="button" class="tab" data-tab="stats">Stats</button>
-      <button type="button" class="tab" data-tab="ask">Ask</button>
-      <button type="button" class="tab" data-tab="transactions">Transactions</button>
-      <button type="button" class="tab" data-tab="upload" id="upload-tab" hidden>Upload</button>
-    </nav>
-
-    <p class="notice" id="notice"></p>
-
-    <section id="panel-stats" class="panel" hidden>
-      <div class="toolbar">
-        <label class="inline-field">Period
-          <select id="stats-month"></select>
-        </label>
-      </div>
-      <p id="stats-empty" class="empty" hidden></p>
-      <div id="stats-body">
-        <div class="tiles" id="tiles"></div>
-
-        <figure class="card">
-          <figcaption>Spending by month</figcaption>
-          <div id="monthly-chart" class="chart"></div>
-          <div id="chart-tooltip" class="tooltip" hidden></div>
-          <details>
-            <summary>Show as table</summary>
-            <div id="monthly-table"></div>
+    <main class="content">
+      <!-- Start a new analysis -->
+      <section id="view-new" class="view narrow" hidden>
+        <h1>New analysis</h1>
+        <p class="lead">Add a bank or card statement to see where the money went.</p>
+        <form id="new-form" class="stack">
+          <label class="dropzone" id="dropzone">
+            <input id="new-file" type="file" accept=".pdf,.csv" required class="visually-hidden">
+            <span class="drop-icon" aria-hidden="true">↑</span>
+            <span class="drop-title" id="drop-title">Choose a statement, or drop it here</span>
+            <span class="muted small">PDF or CSV, up to 10 MB</span>
+          </label>
+          <label>Name <span class="muted small">(optional)</span>
+            <input id="new-name" type="text" maxlength="60" placeholder="Uses the file name if left empty">
+          </label>
+          <details class="options">
+            <summary>More options</summary>
+            <label>PDF password, if it has one
+              <input id="new-password" type="password" maxlength="100" autocomplete="off">
+            </label>
+            <label>Account name
+              <input id="new-account" type="text" maxlength="40" value="My account">
+            </label>
+            <label>Your name as it appears on statements
+              <input id="new-self" type="text" maxlength="60" autocomplete="off">
+              <span class="muted small">Helps recognise transfers to yourself, so they aren't counted as spending.</span>
+            </label>
           </details>
-        </figure>
+          <button id="new-submit" type="submit" class="primary">Start analysis</button>
+          <p id="new-error" class="error" role="alert" hidden></p>
+        </form>
+        <p class="privacy"><strong>Stays on this computer.</strong> The file isn't kept, only the transactions read from it. Nothing goes to an AI model unless you turn on questions for this analysis.</p>
+      </section>
 
-        <div class="columns">
+      <!-- An open analysis -->
+      <section id="view-analysis" class="view" hidden>
+        <header class="analysis-header">
+          <div>
+            <h1 id="analysis-title"></h1>
+            <p id="analysis-subtitle" class="muted small"></p>
+          </div>
+        </header>
+
+        <nav aria-label="Sections" class="tabs">
+          <button type="button" class="tab" data-tab="overview">Overview</button>
+          <button type="button" class="tab" data-tab="ask">Ask</button>
+          <button type="button" class="tab" data-tab="transactions">Transactions</button>
+          <button type="button" class="tab" data-tab="manage" id="manage-tab">Manage</button>
+        </nav>
+
+        <div id="import-report" class="report" role="status" hidden></div>
+
+        <!-- Overview -->
+        <div id="panel-overview" class="panel" hidden>
+          <div class="toolbar">
+            <label class="field-inline">Period
+              <select id="stats-month"></select>
+            </label>
+          </div>
+          <div class="tiles" id="tiles"></div>
+          <p id="insight" class="insight" hidden></p>
+
           <figure class="card">
-            <figcaption>By category</figcaption>
-            <div id="categories" class="bars"></div>
+            <figcaption>Spending by month</figcaption>
+            <div id="monthly-chart" class="chart"></div>
+            <details>
+              <summary>Show as table</summary>
+              <div id="monthly-table"></div>
+            </details>
           </figure>
-          <figure class="card">
-            <figcaption>Top merchants</figcaption>
-            <div id="merchants" class="bars"></div>
-          </figure>
+
+          <div class="columns">
+            <figure class="card">
+              <figcaption>Where it went</figcaption>
+              <div id="categories" class="bars"></div>
+            </figure>
+            <figure class="card">
+              <figcaption>Top merchants</figcaption>
+              <div id="merchants" class="bars"></div>
+            </figure>
+          </div>
+
+          <section class="card">
+            <h2>Recurring payments</h2>
+            <p class="muted small">Charged about once a month for a similar amount.</p>
+            <div id="recurring"></div>
+          </section>
+
+          <section class="card">
+            <h2>Largest expenses</h2>
+            <div id="largest"></div>
+          </section>
         </div>
 
-        <section class="card">
-          <h2>Recurring payments</h2>
-          <p class="hint">Charged about once a month for a similar amount.</p>
-          <div id="recurring"></div>
-        </section>
+        <!-- Ask -->
+        <div id="panel-ask" class="panel" hidden>
+          <div id="ask-consent" class="card consent" hidden>
+            <h2>Questions are off for this analysis</h2>
+            <p>Answering a question sends results from this analysis to the AI provider, including merchant names, amounts and dates. People you pay over UPI appear by name. On Gemini's free tier, Google may use this data to improve its products.</p>
+            <p class="muted small">Overview and Transactions work without this.</p>
+            <button type="button" id="ask-enable" class="secondary">Turn on questions for this analysis</button>
+          </div>
+          <div id="ask-chat" class="chat">
+            <div id="thread" class="thread" aria-live="polite"></div>
+            <div id="suggestions" class="suggestions"></div>
+            <form id="ask-form" class="composer">
+              <label for="question" class="visually-hidden">Your question</label>
+              <textarea id="question" rows="1" maxlength="500" required placeholder="Ask about your money…"></textarea>
+              <button id="ask-submit" type="submit" class="primary send">Ask</button>
+            </form>
+            <button type="button" id="clear-chat" class="link-button" hidden>Clear conversation</button>
+          </div>
+        </div>
 
-        <section class="card">
-          <h2>Largest expenses</h2>
-          <div id="largest"></div>
-        </section>
-      </div>
-    </section>
+        <!-- Transactions -->
+        <div id="panel-transactions" class="panel" hidden>
+          <div class="toolbar">
+            <label class="field-inline">Search merchant
+              <input id="txn-search" type="search" maxlength="100">
+            </label>
+            <label class="field-inline">Category
+              <select id="txn-category"></select>
+            </label>
+            <label class="field-inline">Month
+              <select id="txn-month"></select>
+            </label>
+          </div>
+          <p id="txn-empty" class="empty" hidden>No transactions match.</p>
+          <div id="txn-table" class="table-scroll"></div>
+          <div class="pager">
+            <button type="button" id="txn-prev" class="secondary">Previous</button>
+            <span id="txn-count" class="muted small"></span>
+            <button type="button" id="txn-next" class="secondary">Next</button>
+          </div>
+        </div>
 
-    <section id="panel-ask" class="panel" hidden>
-      <form id="ask-form">
-        <label for="question">Your question</label>
-        <textarea id="question" rows="2" maxlength="500" required placeholder="How much did I spend on food delivery last month?"></textarea>
-        <button id="submit" type="submit" class="primary">Ask</button>
-      </form>
+        <!-- Manage -->
+        <div id="panel-manage" class="panel narrow-panel" hidden>
+          <form id="rename-form" class="card stack">
+            <h2>Name</h2>
+            <label for="rename-input" class="visually-hidden">Analysis name</label>
+            <input id="rename-input" type="text" maxlength="60" required>
+            <button type="submit" class="secondary align-start">Save name</button>
+          </form>
 
-      <div class="examples" id="examples">
-        <button type="button" class="example">What were my top 5 merchants by spend in September 2026?</button>
-        <button type="button" class="example">How much did I actually spend on Amazon overall, after refunds?</button>
-        <button type="button" class="example">How much have I invested this financial year?</button>
-      </div>
+          <form id="add-form" class="card stack">
+            <h2>Add another statement</h2>
+            <p class="muted small">Overlapping dates are fine, as long as you use the same account name for the same account.</p>
+            <label>Statement file
+              <input id="add-file" type="file" accept=".pdf,.csv" required>
+            </label>
+            <label>Account name
+              <input id="add-account" type="text" maxlength="40" list="account-names" required>
+              <datalist id="account-names"></datalist>
+            </label>
+            <label>PDF password, if it has one
+              <input id="add-password" type="password" maxlength="100" autocomplete="off">
+            </label>
+            <label>Your name as it appears on statements <span class="muted small">(optional)</span>
+              <input id="add-self" type="text" maxlength="60" autocomplete="off">
+            </label>
+            <button id="add-submit" type="submit" class="secondary align-start">Add statement</button>
+            <p id="add-error" class="error" role="alert" hidden></p>
+          </form>
 
-      <section id="result" class="card" aria-live="polite" hidden>
-        <p id="answer"></p>
-        <details id="sql-details" hidden>
-          <summary>SQL used</summary>
-          <pre id="sql"></pre>
-        </details>
+          <section class="card stack">
+            <h2>AI questions</h2>
+            <p id="ai-status" class="small"></p>
+            <button type="button" id="ai-toggle" class="secondary align-start"></button>
+          </section>
+
+          <section class="card stack">
+            <h2>Delete analysis</h2>
+            <p class="muted small">Removes its transactions and category corrections from this computer. This can't be undone.</p>
+            <button id="delete-analysis" type="button" class="danger align-start">Delete analysis</button>
+          </section>
+        </div>
       </section>
-    </section>
 
-    <section id="panel-transactions" class="panel" hidden>
-      <div class="toolbar">
-        <label class="inline-field">Search merchant
-          <input id="txn-search" type="search" maxlength="100">
-        </label>
-        <label class="inline-field">Category
-          <select id="txn-category"></select>
-        </label>
-        <label class="inline-field">Month
-          <select id="txn-month"></select>
-        </label>
-      </div>
-      <p id="txn-empty" class="empty" hidden></p>
-      <div id="txn-table" class="table-scroll"></div>
-      <div class="pager">
-        <button type="button" id="txn-prev" class="secondary">Previous</button>
-        <span id="txn-count"></span>
-        <button type="button" id="txn-next" class="secondary">Next</button>
-      </div>
-    </section>
-
-    <section id="panel-upload" class="panel" hidden>
-      <form id="upload-form" class="card stack">
-        <h2>Add a statement</h2>
-        <p class="hint">PDF or CSV, up to 10 MB. The file isn't kept: only the transactions read from it are stored, on this computer.</p>
-        <label>Statement file
-          <input id="upload-file" type="file" accept=".pdf,.csv" required>
-        </label>
-        <label>Account name
-          <input id="upload-account" type="text" maxlength="40" value="My account">
-        </label>
-        <label>PDF password, if it has one
-          <input id="upload-password" type="password" maxlength="100" autocomplete="off">
-        </label>
-        <label>Your name as it appears on statements
-          <input id="upload-name" type="text" maxlength="60" autocomplete="off">
-          <span class="hint">Optional. Helps recognise transfers to yourself, so they aren't counted as spending.</span>
-        </label>
-        <button id="upload-submit" type="submit" class="primary">Upload</button>
-      </form>
-      <section id="upload-result" class="card" aria-live="polite" hidden></section>
-      <section class="card">
-        <h2>Delete my data</h2>
-        <p class="hint">Removes all your uploaded transactions and category corrections from this computer. This can't be undone.</p>
-        <button id="delete-data" type="button" class="danger">Delete my data</button>
-      </section>
-    </section>
-
-    <footer>Insights about the data shown here, not financial, tax or investment advice.</footer>
-  </main>
-  <script src="/static/app.js?v=2"></script>
+      <footer>Insights about the data shown here, not financial, tax or investment advice.</footer>
+    </main>
+  </div>
+  <div id="chart-tooltip" class="tooltip" hidden></div>
+  <script src="/static/app.js?v=4"></script>
 </body>
 </html>

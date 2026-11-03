@@ -21,7 +21,7 @@ RUN python -m app.ingest.statements data/sample/transactions.csv --db "$DATABASE
     && mkdir /userdata && chown paisalens /userdata
 
 # Only used when uploads are enabled, which needs a volume here. See compose.yaml.
-ENV MY_DATABASE_PATH=/userdata/my.db
+ENV ANALYSES_DIR=/userdata/analyses
 
 USER paisalens
 EXPOSE 8000
