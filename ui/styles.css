@@ -262,6 +262,8 @@ summary { color: var(--muted); font-size: 0.85rem; cursor: pointer; }
 .report.warn { background: var(--warning-soft); color: var(--warning-text); }
 .report ul { margin: 3px 0 0; padding-left: 18px; }
 
+.temporary-note { margin: -6px 0 14px; color: var(--muted); font-size: 0.82rem; }
+
 .toolbar { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
 .field-inline { color: var(--muted); font-size: 0.8rem; font-weight: 500; }
 .field-inline select, .field-inline input { display: block; margin-top: 2px; color: var(--text); font-size: 0.9rem; }

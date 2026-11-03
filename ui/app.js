@@ -24,7 +24,7 @@ const OWN_SUGGESTIONS = [
 ];
 
 const state = {
-  config: { uploads_enabled: false, categories: [] },
+  config: { uploads_enabled: false, storage: "local", retention_minutes: 120, max_upload_mb: 10, categories: [] },
   analyses: [],
   current: null,     // the open analysis, or null on the New analysis page
   tab: "overview",
@@ -130,6 +130,31 @@ async function refreshAnalyses() {
   state.analyses = state.config.uploads_enabled ? (await request("/analyses")).analyses : [];
 }
 
+function retentionLabel() {
+  const minutes = state.config.retention_minutes;
+  return minutes % 60 === 0 ? `${minutes / 60} hour${minutes === 60 ? "" : "s"}` : `${minutes} minutes`;
+}
+
+function applyStorageWording() {
+  const temporary = state.config.storage === "temporary";
+  $("drop-limit").textContent = `PDF or CSV, up to ${state.config.max_upload_mb} MB`;
+  const privacy = $("new-privacy");
+  privacy.replaceChildren(el("strong", { text: temporary ? "Private and temporary." : "Stays on this computer." }), " ");
+  privacy.append(temporary
+    ? `Your transactions are held on this site's server, visible only from this browser, and deleted after ${retentionLabel()} of inactivity or whenever the server restarts, which can happen sooner. The file isn't kept. Nothing goes to an AI model unless you turn on questions. This is a demo without accounts or encryption at rest, so consider using a statement you're comfortable with.`
+    : "The file isn't kept, only the transactions read from it. Nothing goes to an AI model unless you turn on questions for this analysis.");
+  $("temporary-note").textContent = `Temporary: only this browser can see this analysis. It's deleted after ${retentionLabel()} of inactivity or when the server restarts.`;
+}
+
+// An analysis can expire while its page is open, so return to the list rather than showing a broken page.
+async function handleLoadError(error) {
+  if (error.status !== 404 || !state.current || state.current.example) throw error;
+  conversations.delete(state.current.id);
+  await refreshAnalyses();
+  if (state.analyses.length) openAnalysis(state.analyses[0].id);
+  else openAnalysis(EXAMPLE.id);
+}
+
 function showNewAnalysis() {
   state.current = null;
   $("view-analysis").hidden = true;
@@ -152,6 +177,7 @@ function openAnalysis(id, tab = "overview") {
   $("view-analysis").hidden = false;
   $("import-report").hidden = true;
   $("manage-tab").hidden = analysis.example;
+  $("temporary-note").hidden = analysis.example || state.config.storage !== "temporary";
   renderHeader();
   renderSidebar();
   renderThread();
@@ -174,8 +200,8 @@ function showTab(tab) {
     else button.removeAttribute("aria-current");
   });
   document.querySelectorAll(".panel").forEach((panel) => { panel.hidden = panel.id !== `panel-${tab}`; });
-  if (tab === "overview") loadStats();
-  if (tab === "transactions") loadTransactions();
+  if (tab === "overview") loadStats().catch(handleLoadError);
+  if (tab === "transactions") loadTransactions().catch(handleLoadError);
   if (tab === "ask") renderAsk();
   if (tab === "manage") renderManage();
 }
@@ -315,7 +341,7 @@ function renderMonthlyChart(monthly, selected) {
   const points = monthly.map((item) => ({ key: item.month, value: item.spent_paise, short: monthLabel(item.month), long: monthLabel(item.month, true) }));
   const onSelect = (month) => {
     state.month = state.month === month ? "" : month;
-    loadStats();
+    loadStats().catch(handleLoadError);
   };
   $("monthly-chart").replaceChildren(barChart(points, { onSelect, selected, ariaLabel: "Bar chart of spending by month" }));
   $("monthly-table").replaceChildren(el("div", { className: "table-scroll" }, table(
@@ -660,7 +686,7 @@ async function addStatement(event) {
 
 async function deleteAnalysis() {
   const { id, name } = state.current;
-  if (!window.confirm(`Delete "${name}" from this computer? This can't be undone.`)) return;
+  if (!window.confirm(`Delete "${name}"? This can't be undone.`)) return;
   try {
     await request(`/analyses/${id}`, { method: "DELETE", headers: WRITE_HEADERS });
     conversations.delete(id);
@@ -681,7 +707,7 @@ function setDropTitle() {
 
 document.querySelectorAll(".tab").forEach((button) => button.addEventListener("click", () => showTab(button.dataset.tab)));
 $("new-analysis").addEventListener("click", showNewAnalysis);
-$("stats-month").addEventListener("change", (event) => { state.month = event.target.value; loadStats(); });
+$("stats-month").addEventListener("change", (event) => { state.month = event.target.value; loadStats().catch(handleLoadError); });
 
 $("ask-form").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -742,6 +768,7 @@ async function start() {
     // The example still works without these extras.
   }
   $("new-analysis").hidden = !state.config.uploads_enabled;
+  applyStorageWording();
   openAnalysis(state.analyses.length ? state.analyses[0].id : EXAMPLE.id);
 }
 

@@ -22,6 +22,7 @@ RUN python -m app.ingest.statements data/sample/transactions.csv --db "$DATABASE
 
 # Only used when uploads are enabled, which needs a volume here. See compose.yaml.
 ENV ANALYSES_DIR=/userdata/analyses
+ENV SESSIONS_DIR=/tmp/paisalens-sessions
 
 USER paisalens
 EXPOSE 8000

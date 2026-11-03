@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PaisaLens</title>
-  <link rel="stylesheet" href="/static/styles.css?v=4">
+  <link rel="stylesheet" href="/static/styles.css?v=5">
 </head>
 <body>
   <div class="shell">
@@ -30,7 +30,7 @@
             <input id="new-file" type="file" accept=".pdf,.csv" required class="visually-hidden">
             <span class="drop-icon" aria-hidden="true">↑</span>
             <span class="drop-title" id="drop-title">Choose a statement, or drop it here</span>
-            <span class="muted small">PDF or CSV, up to 10 MB</span>
+            <span class="muted small" id="drop-limit">PDF or CSV, up to 10 MB</span>
           </label>
           <label>Name <span class="muted small">(optional)</span>
             <input id="new-name" type="text" maxlength="60" placeholder="Uses the file name if left empty">
@@ -51,7 +51,7 @@
           <button id="new-submit" type="submit" class="primary">Start analysis</button>
           <p id="new-error" class="error" role="alert" hidden></p>
         </form>
-        <p class="privacy"><strong>Stays on this computer.</strong> The file isn't kept, only the transactions read from it. Nothing goes to an AI model unless you turn on questions for this analysis.</p>
+        <p class="privacy" id="new-privacy"></p>
       </section>
 
       <!-- An open analysis -->
@@ -70,6 +70,7 @@
           <button type="button" class="tab" data-tab="manage" id="manage-tab">Manage</button>
         </nav>
 
+        <p id="temporary-note" class="temporary-note" hidden></p>
         <div id="import-report" class="report" role="status" hidden></div>
 
         <!-- Overview -->
@@ -193,7 +194,7 @@
 
           <section class="card stack">
             <h2>Delete analysis</h2>
-            <p class="muted small">Removes its transactions and category corrections from this computer. This can't be undone.</p>
+            <p class="muted small">Removes its transactions and category corrections straight away. This can't be undone.</p>
             <button id="delete-analysis" type="button" class="danger align-start">Delete analysis</button>
           </section>
         </div>
@@ -203,6 +204,6 @@
     </main>
   </div>
   <div id="chart-tooltip" class="tooltip" hidden></div>
-  <script src="/static/app.js?v=4"></script>
+  <script src="/static/app.js?v=5"></script>
 </body>
 </html>

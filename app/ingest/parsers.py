@@ -15,7 +15,7 @@ import pdfplumber
 
 from app.ingest.statements import StatementError, Transaction, build_transaction, finish_transactions
 
-MAX_PDF_PAGES = 200
+MAX_PDF_PAGES = 100
 HEADER_FIELDS = (  # checked in order, so "withdrawal amount" is a debit before it can be an amount
     ("date", ("txn date", "tran date", "transaction date", "posting date", "date")),
     ("narration", ("narration", "description", "particulars", "transaction details", "details", "remarks")),

@@ -2,7 +2,7 @@
 
 Ask questions about your own money in plain English and get exact numbers, with the SQL that produced them.
 
-**[Try the live demo](https://mymoneyanalysis.onrender.com)**. It uses made-up data, so uploads are off there, and the first load can be slow. To analyse your own statements, [run it on your computer](#using-your-own-statement).
+**[Try the live demo](https://mymoneyanalysis.onrender.com)**, which opens on made-up data. The first load can be slow. To keep your own statements on your own machine, [run it on your computer](#using-your-own-statement).
 
 **Status: early v1.** You can start separate analyses from PDF or CSV statements, browse a dashboard, spot recurring payments, correct categories and ask numeric questions with follow-ups, through a web page, an HTTP API or the command line. Document search (RAG) isn't built yet ([Roadmap](#roadmap)).
 
@@ -68,7 +68,16 @@ Run the app with `docker compose up --build`, open http://localhost:8000 and cli
 
 The `Dockerfile` builds one self-contained image: the service, the web page and a read-only database of the synthetic data. It runs on any host that can run a container and supplies HTTPS. It listens on `$PORT` (default 8000), and `/health` works as the health check path.
 
-> **This is a public demo setup. There's no login**, so anyone who can reach the service can ask about whatever data it holds. Don't deploy it with real statements, and leave `ENABLE_UPLOADS` unset. Uploads are off in the image by default and only `compose.yaml`, which listens on your own machine only, turns them on.
+> **Never set `ENABLE_UPLOADS` on a public deployment.** It gives everyone the same shared space, and is meant only for `compose.yaml`, which listens on your own machine. For uploads on a public site, set `PRIVATE_UPLOADS=true` instead.
+
+### Private uploads on a public site
+
+With `PRIVATE_UPLOADS=true`, each visitor gets temporary space tied to a random cookie, and can only reach their own analyses. There are no accounts.
+
+- **Deleted automatically:** after `SESSION_TTL_MINUTES` of inactivity, and whenever the server restarts. On a free instance that sleeps when idle, this can be much sooner.
+- **Limits:** 5 MB per file, 3 analyses per visitor, and `UPLOADS_PER_MINUTE`, `DAILY_UPLOAD_LIMIT` and `MAX_VISITORS` to protect the server.
+- **What it doesn't do:** data isn't encrypted on the server's disk, and whoever operates the deployment could read it while it exists. Clearing cookies or switching browser loses access, with no recovery. This suits trying the app, not long-term storage of real statements.
+- **AI questions:** these stay off for each analysis until the visitor turns them on, and they use your API key and quota.
 
 Before making it public:
 
@@ -86,6 +95,11 @@ Before making it public:
 | `AS_OF_DATE` | `2026-11-02` in the image | The demo's fixed "today", matching its static data |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1` | Proxies trusted to report the visitor's address |
 | `AGENT_MAX_STEPS` | `8` | Model calls allowed per question |
+| `PRIVATE_UPLOADS` | off | Per-visitor temporary uploads on a public site |
+| `SESSION_TTL_MINUTES` | `120` | Inactivity before a visitor's data is deleted |
+| `UPLOADS_PER_MINUTE` | `3` | Uploads per visitor per minute |
+| `DAILY_UPLOAD_LIMIT` | `100` | Uploads per day across all visitors |
+| `MAX_VISITORS` | `100` | Visitors with uploaded data at one time |
 
 Logs record status, timing and token counts per question, but not the questions or answers.
 
@@ -146,7 +160,7 @@ The tests make no API calls. The agent loop runs against a scripted fake client,
 - [ ] RAG over fund factsheets and finance documents, tagged by financial year and tax regime
 - [ ] Testing the PDF parser on real statements from major banks
 - [ ] Local model support, so questions on your own data can stay private
-- [ ] Login, before any deployment holds real data
+- [ ] Accounts and encryption at rest, for keeping real data on a server
 - [ ] Mutual fund overlap (needs fund portfolio data, which CAS statements don't include)
 
 ## Disclaimer

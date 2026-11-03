@@ -13,7 +13,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import anthropic
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -26,12 +26,16 @@ from app.analyses import EXAMPLE_ID, MAX_NAME_LENGTH, AnalysisNotFound, Analysis
 from app.ingest.parsers import parse_upload
 from app.ingest.statements import StatementError, load, relink_internal_transfers
 from app.limits import UsageLimiter
+from app.sessions import COOKIE_NAME, SessionManager, SessionsFull
 from app.sql.guardrails import GuardrailError, run_query
 from app.stats import build_stats, list_transactions
 
 UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 MAX_QUESTION_LENGTH = 500
-MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+MAX_LOCAL_UPLOAD_MB = 10
+MAX_PRIVATE_UPLOAD_MB = 5
+MAX_ANALYSES_PER_VISITOR = 3
+HSTS_VALUE = "max-age=31536000"
 MAX_PAGE_SIZE = 200
 MAX_HISTORY_TURNS = 6
 MAX_HISTORY_ANSWER_LENGTH = 2000
@@ -110,12 +114,27 @@ def create_app(settings: Settings | None = None, client=None, limiter: UsageLimi
     if not model_configured:
         logger.warning("No credentials set for %s: /ask will return 503", settings.model)
 
-    uploads_enabled = env_flag("ENABLE_UPLOADS")
-    store = AnalysisStore(os.getenv("ANALYSES_DIR", "data/analyses")) if uploads_enabled else None
+    # Two ways to allow uploads: one person on their own machine, or many visitors with temporary private space.
+    local_uploads = env_flag("ENABLE_UPLOADS")
+    private_uploads = env_flag("PRIVATE_UPLOADS")
+    if local_uploads and private_uploads:
+        raise ValueError("Set ENABLE_UPLOADS or PRIVATE_UPLOADS, not both.")
+    uploads_enabled = local_uploads or private_uploads
+    local_store = AnalysisStore(os.getenv("ANALYSES_DIR", "data/analyses")) if local_uploads else None
+    retention_minutes = int(os.getenv("SESSION_TTL_MINUTES", "120"))
+    sessions = None
+    upload_limiter = None
+    if private_uploads:
+        sessions = SessionManager(os.getenv("SESSIONS_DIR", "/tmp/paisalens-sessions"), retention_minutes * 60,
+                                  int(os.getenv("MAX_VISITORS", "100")))
+        sessions.start_sweeping()
+        upload_limiter = UsageLimiter(int(os.getenv("UPLOADS_PER_MINUTE", "3")), int(os.getenv("DAILY_UPLOAD_LIMIT", "100")))
+    max_upload_mb = MAX_PRIVATE_UPLOAD_MB if private_uploads else MAX_LOCAL_UPLOAD_MB
+    parsing_slots = threading.BoundedSemaphore(1 if private_uploads else 4)  # reading PDFs is heavy on a small server
     write_lock = threading.Lock()
 
     app = FastAPI(title="PaisaLens", docs_url=None, redoc_url=None, openapi_url=None)
-    if uploads_enabled:
+    if local_uploads:
         # Stops another website reaching this local service through DNS rebinding.
         hosts = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
@@ -124,6 +143,10 @@ def create_app(settings: Settings | None = None, client=None, limiter: UsageLimi
     async def add_security_headers(request: Request, call_next):
         response = await call_next(request)
         response.headers.update(SECURITY_HEADERS)
+        if not request.url.path.startswith("/static") and request.url.path != "/":
+            response.headers["Cache-Control"] = "no-store"  # financial data shouldn't linger in browser caches
+        if private_uploads:
+            response.headers["Strict-Transport-Security"] = HSTS_VALUE
         return response
 
     def require_uploads():
@@ -136,26 +159,48 @@ def create_app(settings: Settings | None = None, client=None, limiter: UsageLimi
         if x_requested_with != WRITE_HEADER_VALUE:
             raise HTTPException(403, "Missing request header.")
 
-    def database_for(analysis: str) -> Path | str:
+    def store_for(request: Request) -> AnalysisStore | None:
+        """This visitor's analyses. Everything below goes through here, which is what keeps visitors apart."""
+        if local_uploads:
+            return local_store
+        return sessions.get(request.cookies.get(COOKIE_NAME)) if private_uploads else None
+
+    def owned_store(request: Request) -> AnalysisStore:
+        store = store_for(request)
+        if store is None:
+            raise HTTPException(404, "That analysis has expired or doesn't exist.")
+        return store
+
+    def database_for(analysis: str, request: Request) -> Path | str:
         if analysis == EXAMPLE_ID:
             return settings.database_path
         require_uploads()
         try:
-            return store.existing_path(analysis)
+            return owned_store(request).existing_path(analysis)
         except AnalysisNotFound as exc:
-            raise HTTPException(404, "That analysis doesn't exist.") from exc
+            raise HTTPException(404, "That analysis has expired or doesn't exist.") from exc
 
-    def read_statement(file: UploadFile, account: str, password: str, self_name: str):
+    def read_statement(request: Request, file: UploadFile, account: str, password: str, self_name: str):
         # The file itself is never saved: only the parsed transactions are kept.
-        data = file.file.read(MAX_UPLOAD_BYTES + 1)
-        if len(data) > MAX_UPLOAD_BYTES:
-            raise HTTPException(413, "That file is over the 10 MB limit.")
+        if upload_limiter is not None:
+            refused = upload_limiter.check(request.client.host if request.client else "unknown")
+            if refused == "daily":
+                raise HTTPException(429, "The site has reached its daily upload limit. Try again tomorrow.")
+            if refused:
+                raise HTTPException(429, "Too many uploads. Please wait a minute.", headers={"Retry-After": "60"})
+        data = file.file.read(max_upload_mb * 1024 * 1024 + 1)
+        if len(data) > max_upload_mb * 1024 * 1024:
+            raise HTTPException(413, f"That file is over the {max_upload_mb} MB limit.")
         label = re.sub(r"[^A-Za-z0-9 _-]", "", account).strip() or "My account"
         names = frozenset({self_name.strip()}) if self_name.strip() else frozenset()
+        if not parsing_slots.acquire(blocking=False):
+            raise HTTPException(503, "The service is busy reading another statement. Please try again shortly.")
         try:
             return parse_upload(file.filename or "", data, label, password, names)
         except StatementError as exc:
             raise HTTPException(422, str(exc)) from exc
+        finally:
+            parsing_slots.release()
 
     def import_statement(conn, parsed) -> dict:
         added = load(conn, parsed.transactions)
@@ -177,11 +222,13 @@ def create_app(settings: Settings | None = None, client=None, limiter: UsageLimi
 
     @app.get("/config")
     def config():
-        return {"uploads_enabled": uploads_enabled, "categories": ALLOWED_CATEGORIES}
+        return {"uploads_enabled": uploads_enabled, "storage": "temporary" if private_uploads else "local",
+                "retention_minutes": retention_minutes, "max_upload_mb": max_upload_mb, "categories": ALLOWED_CATEGORIES}
 
     @app.get("/analyses")
-    def analyses():
-        return {"analyses": store.list() if uploads_enabled else []}
+    def analyses(request: Request):
+        store = store_for(request)
+        return {"analyses": store.list() if store is not None else []}
 
     @app.post("/ask", response_model=AskResponse)
     def ask_question(body: AskRequest, request: Request):
@@ -190,8 +237,8 @@ def create_app(settings: Settings | None = None, client=None, limiter: UsageLimi
         question = body.question.strip()
         if not question:
             raise HTTPException(422, "Question is empty.")
-        database = database_for(body.analysis)
-        if body.analysis != EXAMPLE_ID and not store.get(body.analysis)["ai_allowed"]:
+        database = database_for(body.analysis, request)
+        if body.analysis != EXAMPLE_ID and not owned_store(request).get(body.analysis)["ai_allowed"]:
             raise HTTPException(403, "Questions are off for this analysis, because they would send its data to the "
                                      "AI provider. You can turn them on under Manage.")
         run_settings = settings if body.analysis == EXAMPLE_ID else replace(settings, database_path=str(database), as_of="")
@@ -234,24 +281,35 @@ def create_app(settings: Settings | None = None, client=None, limiter: UsageLimi
                            table=present_result(answer.results[-1] if answer.results else None))
 
     @app.get("/stats")
-    def stats(analysis: str = EXAMPLE_ID, month: str | None = Query(default=None, pattern=MONTH_PATTERN)):
-        return build_stats(database_for(analysis), month)
+    def stats(request: Request, analysis: str = EXAMPLE_ID, month: str | None = Query(default=None, pattern=MONTH_PATTERN)):
+        return build_stats(database_for(analysis, request), month)
 
     @app.get("/transactions")
-    def transactions(analysis: str = EXAMPLE_ID, search: str = Query(default="", max_length=100),
+    def transactions(request: Request, analysis: str = EXAMPLE_ID, search: str = Query(default="", max_length=100),
                      category: str = Query(default="", max_length=50),
                      month: str = Query(default="", pattern=r"^(\d{4}-\d{2})?$"),
                      limit: int = Query(default=50, ge=1, le=MAX_PAGE_SIZE), offset: int = Query(default=0, ge=0)):
-        return list_transactions(database_for(analysis), search, category, month, limit, offset)
+        return list_transactions(database_for(analysis, request), search, category, month, limit, offset)
 
     @app.post("/analyses", dependencies=[Depends(require_uploads), Depends(require_write_header)])
-    def create_analysis(file: UploadFile = File(...), name: str = Form(default="", max_length=MAX_NAME_LENGTH),
+    def create_analysis(request: Request, response: Response, file: UploadFile = File(...),
+                        name: str = Form(default="", max_length=MAX_NAME_LENGTH),
                         account: str = Form(default="My account", max_length=40),
                         password: str = Form(default="", max_length=100), self_name: str = Form(default="", max_length=60)):
-        # The statement is read first, so a bad file doesn't leave an empty analysis behind.
-        parsed = read_statement(file, account, password, self_name)
+        store = store_for(request)
+        if private_uploads and store is not None and len(store.list()) >= MAX_ANALYSES_PER_VISITOR:
+            raise HTTPException(409, f"You can keep {MAX_ANALYSES_PER_VISITOR} analyses at a time. Delete one to add another.")
+        # The statement is read first, so a bad file doesn't leave an empty analysis or visitor space behind.
+        parsed = read_statement(request, file, account, password, self_name)
         fallback = Path(file.filename or "").stem.replace("_", " ").replace("-", " ")
         with write_lock:
+            if store is None:
+                try:
+                    token, store = sessions.create()
+                except SessionsFull as exc:
+                    raise HTTPException(503, "Too many people are using this right now. Please try again later.") from exc
+                # Not readable by scripts, sent only over HTTPS, and never sent from other sites.
+                response.set_cookie(COOKIE_NAME, token, httponly=True, secure=True, samesite="strict", path="/")
             analysis_id, conn = store.create(name.strip() or fallback)
             try:
                 report = import_statement(conn, parsed)
@@ -260,12 +318,13 @@ def create_app(settings: Settings | None = None, client=None, limiter: UsageLimi
         return {"analysis": store.get(analysis_id), "report": report}
 
     @app.post("/analyses/{analysis_id}/statements", dependencies=[Depends(require_uploads), Depends(require_write_header)])
-    def add_statement(analysis_id: str, file: UploadFile = File(...), account: str = Form(default="My account", max_length=40),
+    def add_statement(request: Request, analysis_id: str, file: UploadFile = File(...), account: str = Form(default="My account", max_length=40),
                       password: str = Form(default="", max_length=100), self_name: str = Form(default="", max_length=60)):
-        database_for(analysis_id)
+        database_for(analysis_id, request)
         if analysis_id == EXAMPLE_ID:
             raise HTTPException(403, "The example analysis can't be changed.")
-        parsed = read_statement(file, account, password, self_name)
+        store = owned_store(request)
+        parsed = read_statement(request, file, account, password, self_name)
         with write_lock:
             conn = store.open_writable(analysis_id)
             try:
@@ -275,30 +334,33 @@ def create_app(settings: Settings | None = None, client=None, limiter: UsageLimi
         return {"analysis": store.get(analysis_id), "report": report}
 
     @app.patch("/analyses/{analysis_id}", dependencies=[Depends(require_uploads), Depends(require_write_header)])
-    def change_analysis(analysis_id: str, body: AnalysisChange):
-        database_for(analysis_id)
+    def change_analysis(request: Request, analysis_id: str, body: AnalysisChange):
+        database_for(analysis_id, request)
         if analysis_id == EXAMPLE_ID:
             raise HTTPException(403, "The example analysis can't be changed.")
+        store = owned_store(request)
         with write_lock:
             store.update(analysis_id, body.name, body.ai_allowed)
         return store.get(analysis_id)
 
     @app.delete("/analyses/{analysis_id}", dependencies=[Depends(require_uploads), Depends(require_write_header)])
-    def delete_analysis(analysis_id: str):
-        database_for(analysis_id)
+    def delete_analysis(request: Request, analysis_id: str):
+        database_for(analysis_id, request)
         if analysis_id == EXAMPLE_ID:
             raise HTTPException(403, "The example analysis can't be deleted.")
+        store = owned_store(request)
         with write_lock:
             store.delete(analysis_id)
         return {"deleted": True}
 
     @app.patch("/categories", dependencies=[Depends(require_uploads), Depends(require_write_header)])
-    def change_category(body: CategoryChange):
+    def change_category(request: Request, body: CategoryChange):
         if body.category not in ALLOWED_CATEGORIES:
             raise HTTPException(422, "Unknown category.")
-        database_for(body.analysis)
+        database_for(body.analysis, request)
         if body.analysis == EXAMPLE_ID:
             raise HTTPException(403, "The example analysis can't be changed.")
+        store = owned_store(request)
         with write_lock:
             conn = store.open_writable(body.analysis)
             try:
