@@ -2,6 +2,8 @@
 
 Ask questions about your own money in plain English and get exact numbers, with the SQL that produced them.
 
+**[Try the live demo](https://mymoneyanalysis.onrender.com)**. It uses made-up data, so uploads are off there, and the first load can be slow. To analyse your own statements, [run it on your computer](#using-your-own-statement).
+
 **Status: early v1.** You can start separate analyses from PDF or CSV statements, browse a dashboard, spot recurring payments, correct categories and ask numeric questions with follow-ups, through a web page, an HTTP API or the command line. Document search (RAG) isn't built yet ([Roadmap](#roadmap)).
 
 > The repo contains synthetic data only. Keep real statements out of it.
