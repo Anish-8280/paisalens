@@ -2,7 +2,7 @@
 
 Ask questions about your own money in plain English and get exact numbers, with the SQL that produced them.
 
-**Status: early v1.** This covers numeric questions over bank and card transactions, through a small web page, an HTTP API or the command line. RAG and charts aren't built yet ([Roadmap](#roadmap)).
+**Status: early v1.** You can upload PDF or CSV statements, browse a stats dashboard, spot recurring payments, correct categories and ask numeric questions, through a web page, an HTTP API or the command line. Document search (RAG) isn't built yet ([Roadmap](#roadmap)).
 
 > The repo contains synthetic data only. Keep real statements out of it.
 
@@ -53,19 +53,20 @@ The response has `answer`, `status` (`ok`, `refused`, `step_limit` or `max_token
 
 ### Using your own statement
 
-Export a CSV with the columns `date` (DD/MM/YYYY), `account`, `narration`, `debit` and `credit`. Pass your name so transfers to yourself are recognised:
+Run the app with `docker compose up --build`, open http://localhost:8000 and use the **Upload** tab. It takes PDF or CSV statements, and switches between **Demo data** and **My data** so the two never mix.
 
-```bash
-python -m app.ingest.statements my_statement.csv --self-name "YOUR NAME"
-```
+- **Formats:** it finds the date, description and debit/credit (or amount) columns itself, and handles password-protected PDFs. Scanned PDFs aren't supported.
+- **Checking the import:** if the statement has a running balance, each row is checked against it and any mismatch is reported. Still compare the totals with your statement, because this is tested on generated statements and each bank's layout differs.
+- **Repeat imports:** re-importing a file, or statements that overlap, doesn't create duplicates.
+- **Categories:** merchant rules are in `app/ingest/categorise.py`, and anything they don't recognise is filed under `Other` or `People`. Correct a merchant's category on the **Transactions** tab, and the correction is reapplied to later uploads.
 
-Re-importing a file, or importing statements that overlap, doesn't create duplicates. Merchant rules are in `app/ingest/categorise.py`, and anything they don't recognise is filed under `Other` or `People`.
+**Privacy:** the uploaded file isn't kept, only the transactions read from it. They stay in a Docker volume on your computer, and **Delete my data** on the Upload tab removes them. Stats and transactions use no AI model. Questions on your own data are off unless you set `ALLOW_REAL_DATA_TO_MODEL=true`, because they send results to your AI provider.
 
 ## Deploying
 
 The `Dockerfile` builds one self-contained image: the service, the web page and a read-only database of the synthetic data. It runs on any host that can run a container and supplies HTTPS. It listens on `$PORT` (default 8000), and `/health` works as the health check path.
 
-> **This is a public demo setup. There's no login**, so anyone who can reach the service can ask about whatever data it holds. Don't deploy it with real statements.
+> **This is a public demo setup. There's no login**, so anyone who can reach the service can ask about whatever data it holds. Don't deploy it with real statements, and leave `ENABLE_UPLOADS` unset. Uploads are off in the image by default and only `compose.yaml`, which listens on your own machine only, turns them on.
 
 Before making it public:
 
@@ -75,8 +76,8 @@ Before making it public:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | none, required for `/ask` | Set it as a secret on your host. Never put it in the image. |
-| `MODEL` | `claude-sonnet-5-5` | Claude model to use |
+| `GEMINI_API_KEY` or `ANTHROPIC_API_KEY` | none, one is required for `/ask` | The key for the provider `MODEL` uses. Set it as a secret on your host. Never put it in the image. |
+| `MODEL` | `claude-haiku-5-5` if unset | `gemini-*` and `gemma-*` use Google, `claude-*` uses Anthropic. Compare models using the eval. |
 | `RATE_LIMIT_PER_MINUTE` | `5` | Questions per visitor per minute |
 | `DAILY_QUESTION_LIMIT` | `200` | Questions per day across all visitors |
 | `MAX_CONCURRENT_QUESTIONS` | `4` | Questions handled at once. Extra ones get a 503. |
@@ -104,7 +105,9 @@ Logs record status, timing and token counts per question, but not the questions 
 
 ### What does leave your machine
 
-Your question, the SQL and the query results go to the Anthropic API. Results can include merchant names, amounts and dates. **Names of people you pay over UPI appear as merchants**, because they aren't yet pseudonymised. Consider this before using real statements.
+Your question, the SQL and the query results go to your model provider. Results can include merchant names, amounts and dates. **Names of people you pay over UPI appear as merchants**, because they aren't yet pseudonymised. Consider this before using real statements.
+
+**Don't use the free tier of the Gemini API with real statements.** Google's pricing page says free-tier data for most models is used to improve its products, so keep it to the synthetic data.
 
 ## Evaluation
 
@@ -139,10 +142,9 @@ The tests make no API calls. The agent loop runs against a scripted fake client,
 - [ ] Pseudonymise people's names before they reach the model
 - [ ] Conversation memory for follow-up questions
 - [ ] RAG over fund factsheets and finance documents, tagged by financial year and tax regime
-- [ ] Charts
+- [ ] Testing the PDF parser on real statements from major banks
+- [ ] Local model support, so questions on your own data can stay private
 - [ ] Login, before any deployment holds real data
-- [ ] PDF statement parsers
-- [ ] Recurring payment detection
 - [ ] Mutual fund overlap (needs fund portfolio data, which CAS statements don't include)
 
 ## Disclaimer

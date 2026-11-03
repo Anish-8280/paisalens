@@ -19,7 +19,7 @@ it only for questions about transfers, card payments or raw activity.
 
 Categories: Food Delivery, Groceries, Shopping, Subscriptions, Transport, Travel, Bills, Health, Fuel, \
 Rent, People, Cash, Fees, Other. In `all_transactions` and `income_received` there are also Salary, \
-Interest, Investments and Transfers.
+Interest, Other Income, Investments and Transfers.
 
 Rules:
 - Every figure in your answer must come from a query result, quoted exactly. Don't do arithmetic yourself. \

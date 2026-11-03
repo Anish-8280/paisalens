@@ -17,6 +17,12 @@ CREATE TABLE IF NOT EXISTS transactions (
 
 CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions (txn_date);
 
+-- Category corrections made by the user. Reapplied after every import.
+CREATE TABLE IF NOT EXISTS category_overrides (
+    merchant TEXT PRIMARY KEY,
+    category TEXT NOT NULL
+);
+
 -- The views below are the only objects the agent can query. None expose `narration`,
 -- which keeps raw bank text (account numbers, UPI IDs, attacker-written remarks) away
 -- from the model.
@@ -40,6 +46,7 @@ CREATE VIEW IF NOT EXISTS income_received AS
 SELECT id, account, txn_date, merchant, category, amount_paise
 FROM transactions
 WHERE direction = 'credit' AND txn_type IN ('income', 'p2p');
+
 
 -- Everything else, including transfers and card payments, for questions about those.
 CREATE VIEW IF NOT EXISTS all_transactions AS

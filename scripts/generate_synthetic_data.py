@@ -61,11 +61,13 @@ def days_in_month(first: date) -> int:
 def generate(start: date, months: int, seed: int) -> list[dict]:
     rng = random.Random(seed)
     rows = []
+    final_month = list(month_starts(start, months))[-1]
+    last_date = final_month.replace(day=days_in_month(final_month))
 
     def add(day, account, narration, rupees, direction, txn_type, category, merchant):
         paise = round(rupees * 100)
         rows.append({
-            "date": day, "account": account, "narration": narration,
+            "date": min(day, last_date), "account": account, "narration": narration,
             "debit": paise if direction == "debit" else 0,
             "credit": paise if direction == "credit" else 0,
             "txn_type": txn_type, "category": category, "merchant": merchant,

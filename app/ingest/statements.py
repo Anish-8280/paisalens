@@ -6,6 +6,7 @@ Run: python -m app.ingest.statements data/sample/transactions.csv --db data/pais
 import argparse
 import csv
 import hashlib
+import re
 import sqlite3
 from collections import Counter
 from dataclasses import dataclass
@@ -19,6 +20,8 @@ from app.ingest.categorise import clean_name, looks_like_shop, lookup_merchant
 CARD_PAYMENT_MARKERS = ("CC PAYMENT", "CREDIT CARD PAYMENT", "CARD BILL", "PAYMENT RECEIVED")
 TRANSFER_RAILS = {"NEFT", "IMPS", "RTGS"}
 INTERNAL_TRANSFER_WINDOW_DAYS = 1
+UPI_NON_NAMES = {"DR", "CR", "P2A", "P2M", "UPI", "PAY", "PAYMENT"}
+IFSC_PATTERN = re.compile(r"^[A-Z]{4}0[A-Z0-9]{6}$")
 
 
 class StatementError(ValueError):
@@ -67,6 +70,8 @@ def parse_paise(raw: str) -> int:
 def classify(narration: str, direction: str, self_names: frozenset[str] = frozenset()) -> tuple[str, str, str]:
     """Return (merchant, txn_type, category) for one narration."""
     upper = narration.upper()
+    if upper.startswith("UPI-"):  # some banks separate fields with hyphens
+        narration = narration.replace("-", "/")
     parts = [part.strip() for part in narration.split("/")]
     rail = parts[0].upper()
 
@@ -80,9 +85,9 @@ def classify(narration: str, direction: str, self_names: frozenset[str] = frozen
         return "Bank Charges", "fee", "Fees"
     if rail == "INTEREST":
         return "Interest", "income", "Interest"
-    if rail in ("SALARY", "NEFT") and "SALARY" in upper:
+    if direction == "credit" and "SALARY" in upper:
         return clean_name(parts[-1]), "income", "Salary"
-    if rail == "ACH" and ("SIP" in upper or "MF" in upper or "MUTUAL" in upper):
+    if rail.startswith(("ACH", "NACH")) and ("SIP" in upper or "MF" in upper or "MUTUAL" in upper):
         return clean_name(parts[1] if len(parts) > 1 else "Mutual Fund"), "investment", "Investments"
 
     if rail == "REFUND" or (rail == "UPI" and len(parts) > 1 and parts[1].upper() == "REV"):
@@ -92,18 +97,69 @@ def classify(narration: str, direction: str, self_names: frozenset[str] = frozen
         return merchant, "refund", category
 
     if rail == "UPI":
-        payee = parts[2] if len(parts) > 2 else ""
+        payee = _upi_payee(parts)
     elif rail in ("POS", "CARD", "ACH", "NEFT", "IMPS", "RTGS"):
         payee = parts[-1] if rail in TRANSFER_RAILS else (parts[2] if rail == "POS" and len(parts) > 2 else parts[1] if len(parts) > 1 else "")
     else:
         payee = narration
 
-    known = lookup_merchant(payee)
+    known = lookup_merchant(payee) or lookup_merchant(narration)
     if known:
-        return known[0], "purchase", known[1]
+        return known[0], "refund" if direction == "credit" else "purchase", known[1]
     if rail in ("UPI", *TRANSFER_RAILS) and not looks_like_shop(payee):
         return clean_name(payee), "p2p", "People"
+    if direction == "credit":
+        return clean_name(payee), "income", "Other Income"
     return clean_name(payee), "purchase", "Other"
+
+
+def _upi_payee(parts: list[str]) -> str:
+    """The first field that reads like a name. Banks order UPI fields differently."""
+    for part in parts[1:]:
+        upper = part.upper()
+        if "@" in part or not re.search("[A-Z]", upper) or upper in UPI_NON_NAMES or IFSC_PATTERN.match(upper):
+            continue
+        return part
+    return ""
+
+
+def build_transaction(account: str, txn_date: date, narration: str, debit: int, credit: int,
+                      self_names: frozenset[str] = frozenset()) -> Transaction:
+    direction = "debit" if debit else "credit"
+    merchant, txn_type, category = classify(narration, direction, self_names)
+    return Transaction(account, txn_date, narration, merchant, debit or credit, direction, txn_type, category)
+
+
+def finish_transactions(transactions: list[Transaction]) -> None:
+    """Number genuine same-day repeats so they stay distinct, and pair up own-account transfers."""
+    seen: Counter[tuple] = Counter()
+    for txn in transactions:
+        key = (txn.account, txn.txn_date, txn.narration, txn.amount_paise, txn.direction)
+        txn.occurrence = seen[key]
+        seen[key] += 1
+    mark_internal_transfers(transactions)
+
+
+def relink_internal_transfers(conn: sqlite3.Connection) -> int:
+    """Pair own-account transfers across statements uploaded separately. Returns how many pairs were found."""
+    placeholders = ", ".join("?" for _ in TRANSFER_RAILS)
+    rows = conn.execute(
+        f"""SELECT id, account, txn_date, amount_paise, direction FROM transactions
+            WHERE txn_type = 'p2p' AND upper(substr(narration, 1, instr(narration || '/', '/') - 1)) IN ({placeholders})""",
+        sorted(TRANSFER_RAILS)).fetchall()
+    credits = [row for row in rows if row[4] == "credit"]
+    pairs = 0
+    for debit in (row for row in rows if row[4] == "debit"):
+        for credit in credits:
+            days = abs((date.fromisoformat(credit[2]) - date.fromisoformat(debit[2])).days)
+            if credit[1] != debit[1] and credit[3] == debit[3] and days <= INTERNAL_TRANSFER_WINDOW_DAYS:
+                conn.executemany("""UPDATE transactions SET merchant = 'Own Account', txn_type = 'internal_transfer',
+                                    category = 'Transfers' WHERE id = ?""", [(debit[0],), (credit[0],)])
+                credits.remove(credit)
+                pairs += 1
+                break
+    conn.commit()
+    return pairs
 
 
 def mark_internal_transfers(transactions: list[Transaction]) -> None:
@@ -162,8 +218,12 @@ def load(conn: sqlite3.Connection, transactions: list[Transaction]) -> int:
         [(t.txn_hash, t.account, t.txn_date.isoformat(), t.narration, t.merchant,
           t.amount_paise, t.direction, t.txn_type, t.category) for t in transactions],
     )
+    added = conn.total_changes - before
+    conn.execute("""UPDATE transactions SET category =
+                        (SELECT category FROM category_overrides o WHERE o.merchant = transactions.merchant)
+                    WHERE merchant IN (SELECT merchant FROM category_overrides)""")
     conn.commit()
-    return conn.total_changes - before
+    return added
 
 
 def main() -> None:

@@ -1,14 +1,21 @@
+# For running on your own computer. The port only listens on this machine, because uploads
+# are on and the app has no login. A public deployment must leave ENABLE_UPLOADS unset.
 services:
   paisalens:
     build: .
     ports:
       - "127.0.0.1:8000:8000"
     environment:
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?Set ANTHROPIC_API_KEY in .env}
-      MODEL: ${MODEL:-claude-sonnet-5-5}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      MODEL: ${MODEL:-gemini-flash-lite-latest}
       AS_OF_DATE: ${AS_OF_DATE:-2026-11-02}
       RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-5}
       DAILY_QUESTION_LIMIT: ${DAILY_QUESTION_LIMIT:-200}
+      ENABLE_UPLOADS: "true"
+      ALLOW_REAL_DATA_TO_MODEL: ${ALLOW_REAL_DATA_TO_MODEL:-false}
+    volumes:
+      - userdata:/userdata
     restart: unless-stopped
     read_only: true
     tmpfs:
@@ -17,3 +24,6 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+
+volumes:
+  userdata:

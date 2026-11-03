@@ -17,7 +17,11 @@ COPY data/sample ./data/sample
 # The image holds synthetic data only, built into a database nothing at runtime can write to.
 RUN python -m app.ingest.statements data/sample/transactions.csv --db "$DATABASE_PATH" \
     && chmod 444 "$DATABASE_PATH" \
-    && useradd --create-home --uid 10001 paisalens
+    && useradd --create-home --uid 10001 paisalens \
+    && mkdir /userdata && chown paisalens /userdata
+
+# Only used when uploads are enabled, which needs a volume here. See compose.yaml.
+ENV MY_DATABASE_PATH=/userdata/my.db
 
 USER paisalens
 EXPOSE 8000

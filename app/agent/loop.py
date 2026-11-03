@@ -15,9 +15,15 @@ from app.agent.prompts import SYSTEM_PROMPT, user_turn
 from app.agent.tools import QUERY_TOOL, run_tool
 from app.sql.guardrails import QueryResult
 
-DEFAULT_MODEL = "claude-sonnet-5-5"
+DEFAULT_MODEL = "claude-haiku-5-5"
 MAX_TOKENS = 16000
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
+# Refusal fallbacks are model-specific: Haiku has none, so it must not be sent the setting.
+FALLBACK_MODELS = frozenset({"claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-5", "claude-fable-5-1"})
+
+
+def _fallback_params(model: str) -> dict:
+    return {"betas": [FALLBACK_BETA], "fallbacks": "default"} if model in FALLBACK_MODELS else {}
 
 
 @dataclass
@@ -59,7 +65,24 @@ def _text_of(response) -> str:
     return "\n".join(block.text for block in response.content if block.type == "text").strip()
 
 
+def is_gemini_model(model: str) -> bool:
+    return model.startswith(("gemini", "gemma"))
+
+
+def execute_query(sql: str, settings: Settings, answer: Answer) -> tuple[str, bool]:
+    """Run one model-written query and record it. Returns (text for the model, whether it was rejected)."""
+    text, result = run_tool(settings.database_path, sql, settings.row_limit, settings.timeout_seconds)
+    answer.sql.append(sql)
+    if result is not None:
+        answer.results.append(result)
+    return text, result is None
+
+
 def ask(question: str, settings: Settings, client=None) -> Answer:
+    if is_gemini_model(settings.model):
+        from app.agent import gemini  # imported here because gemini.py builds on this module
+        return gemini.ask(question, settings, client)
+
     client = client or anthropic.Anthropic()
     as_of = settings.as_of or date.today().isoformat()
     messages = [{"role": "user", "content": user_turn(question, as_of)}]
@@ -70,12 +93,11 @@ def ask(question: str, settings: Settings, client=None) -> Answer:
         response = client.beta.messages.create(
             model=settings.model,
             max_tokens=MAX_TOKENS,
-            betas=[FALLBACK_BETA],
-            fallbacks="default",
             output_config={"effort": "medium"},
             system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
             tools=[QUERY_TOOL],
             messages=messages,
+            **_fallback_params(settings.model),
         )
         usage = response.usage
         answer.input_tokens += usage.input_tokens
@@ -98,13 +120,9 @@ def ask(question: str, settings: Settings, client=None) -> Answer:
         messages.append({"role": "assistant", "content": response.content})
         tool_results = []
         for call in tool_calls:
-            sql = call.input.get("sql", "")
-            text, result = run_tool(settings.database_path, sql, settings.row_limit, settings.timeout_seconds)
-            answer.sql.append(sql)
-            if result is not None:
-                answer.results.append(result)
+            text, is_error = execute_query(call.input.get("sql", ""), settings, answer)
             tool_results.append({"type": "tool_result", "tool_use_id": call.id, "content": text,
-                                 "is_error": result is None})
+                                 "is_error": is_error})
         messages.append({"role": "user", "content": tool_results})
 
     answer.text = "I couldn't finish working this out within the step limit, so I'm not giving a number."

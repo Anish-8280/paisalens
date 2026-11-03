@@ -72,6 +72,22 @@ def test_step_limit_stops_the_loop_without_a_figure(settings):
     assert answer.status == "step_limit" and answer.steps == 3 and "₹" not in answer.text
 
 
+def test_haiku_is_the_default_and_gets_no_fallback_setting(settings):
+    client = FakeClient(text("ok"))
+    ask("How much?", settings, client)
+    request = client.requests[0]
+    assert request["model"] == "claude-haiku-5-5"
+    assert "fallbacks" not in request and "betas" not in request
+
+
+def test_sonnet_still_gets_the_fallback_setting(settings):
+    settings.model = "claude-sonnet-5-5"
+    client = FakeClient(text("ok"))
+    ask("How much?", settings, client)
+    request = client.requests[0]
+    assert request["fallbacks"] == "default" and request["betas"] == ["server-side-fallback-2026-07-01"]
+
+
 def test_refusal_is_reported(settings):
     answer = ask("x", settings, FakeClient(text("", stop="refusal")))
     assert answer.status == "refused"

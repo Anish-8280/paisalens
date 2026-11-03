@@ -4,39 +4,148 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PaisaLens</title>
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles.css?v=2">
 </head>
 <body>
   <main>
-    <header>
-      <h1>PaisaLens</h1>
-      <p>Ask about spending in plain English and get the exact figure, with the SQL behind it.</p>
+    <header class="top">
+      <div>
+        <h1>PaisaLens</h1>
+        <p>See where your money goes, and ask about it in plain English.</p>
+      </div>
+      <label id="dataset-control" class="inline-field" hidden>Data
+        <select id="dataset">
+          <option value="demo">Demo data</option>
+          <option value="mine">My data</option>
+        </select>
+      </label>
     </header>
 
-    <p class="notice">This demo uses a made-up person's transactions from November 2025 to October 2026. "Today" is fixed at 2 November 2026.</p>
+    <nav aria-label="Sections" class="tabs">
+      <button type="button" class="tab" data-tab="stats">Stats</button>
+      <button type="button" class="tab" data-tab="ask">Ask</button>
+      <button type="button" class="tab" data-tab="transactions">Transactions</button>
+      <button type="button" class="tab" data-tab="upload" id="upload-tab" hidden>Upload</button>
+    </nav>
 
-    <form id="ask-form">
-      <label for="question">Your question</label>
-      <textarea id="question" rows="2" maxlength="500" required placeholder="How much did I spend on food delivery last month?"></textarea>
-      <button id="submit" type="submit">Ask</button>
-    </form>
+    <p class="notice" id="notice"></p>
 
-    <section aria-label="Example questions" class="examples">
-      <button type="button" class="example">What were my top 5 merchants by spend in September 2026?</button>
-      <button type="button" class="example">How much did I actually spend on Amazon overall, after refunds?</button>
-      <button type="button" class="example">How much have I invested this financial year?</button>
+    <section id="panel-stats" class="panel" hidden>
+      <div class="toolbar">
+        <label class="inline-field">Period
+          <select id="stats-month"></select>
+        </label>
+      </div>
+      <p id="stats-empty" class="empty" hidden></p>
+      <div id="stats-body">
+        <div class="tiles" id="tiles"></div>
+
+        <figure class="card">
+          <figcaption>Spending by month</figcaption>
+          <div id="monthly-chart" class="chart"></div>
+          <div id="chart-tooltip" class="tooltip" hidden></div>
+          <details>
+            <summary>Show as table</summary>
+            <div id="monthly-table"></div>
+          </details>
+        </figure>
+
+        <div class="columns">
+          <figure class="card">
+            <figcaption>By category</figcaption>
+            <div id="categories" class="bars"></div>
+          </figure>
+          <figure class="card">
+            <figcaption>Top merchants</figcaption>
+            <div id="merchants" class="bars"></div>
+          </figure>
+        </div>
+
+        <section class="card">
+          <h2>Recurring payments</h2>
+          <p class="hint">Charged about once a month for a similar amount.</p>
+          <div id="recurring"></div>
+        </section>
+
+        <section class="card">
+          <h2>Largest expenses</h2>
+          <div id="largest"></div>
+        </section>
+      </div>
     </section>
 
-    <section id="result" aria-live="polite" hidden>
-      <p id="answer"></p>
-      <details id="sql-details" hidden>
-        <summary>SQL used</summary>
-        <pre id="sql"></pre>
-      </details>
+    <section id="panel-ask" class="panel" hidden>
+      <form id="ask-form">
+        <label for="question">Your question</label>
+        <textarea id="question" rows="2" maxlength="500" required placeholder="How much did I spend on food delivery last month?"></textarea>
+        <button id="submit" type="submit" class="primary">Ask</button>
+      </form>
+
+      <div class="examples" id="examples">
+        <button type="button" class="example">What were my top 5 merchants by spend in September 2026?</button>
+        <button type="button" class="example">How much did I actually spend on Amazon overall, after refunds?</button>
+        <button type="button" class="example">How much have I invested this financial year?</button>
+      </div>
+
+      <section id="result" class="card" aria-live="polite" hidden>
+        <p id="answer"></p>
+        <details id="sql-details" hidden>
+          <summary>SQL used</summary>
+          <pre id="sql"></pre>
+        </details>
+      </section>
+    </section>
+
+    <section id="panel-transactions" class="panel" hidden>
+      <div class="toolbar">
+        <label class="inline-field">Search merchant
+          <input id="txn-search" type="search" maxlength="100">
+        </label>
+        <label class="inline-field">Category
+          <select id="txn-category"></select>
+        </label>
+        <label class="inline-field">Month
+          <select id="txn-month"></select>
+        </label>
+      </div>
+      <p id="txn-empty" class="empty" hidden></p>
+      <div id="txn-table" class="table-scroll"></div>
+      <div class="pager">
+        <button type="button" id="txn-prev" class="secondary">Previous</button>
+        <span id="txn-count"></span>
+        <button type="button" id="txn-next" class="secondary">Next</button>
+      </div>
+    </section>
+
+    <section id="panel-upload" class="panel" hidden>
+      <form id="upload-form" class="card stack">
+        <h2>Add a statement</h2>
+        <p class="hint">PDF or CSV, up to 10 MB. The file isn't kept: only the transactions read from it are stored, on this computer.</p>
+        <label>Statement file
+          <input id="upload-file" type="file" accept=".pdf,.csv" required>
+        </label>
+        <label>Account name
+          <input id="upload-account" type="text" maxlength="40" value="My account">
+        </label>
+        <label>PDF password, if it has one
+          <input id="upload-password" type="password" maxlength="100" autocomplete="off">
+        </label>
+        <label>Your name as it appears on statements
+          <input id="upload-name" type="text" maxlength="60" autocomplete="off">
+          <span class="hint">Optional. Helps recognise transfers to yourself, so they aren't counted as spending.</span>
+        </label>
+        <button id="upload-submit" type="submit" class="primary">Upload</button>
+      </form>
+      <section id="upload-result" class="card" aria-live="polite" hidden></section>
+      <section class="card">
+        <h2>Delete my data</h2>
+        <p class="hint">Removes all your uploaded transactions and category corrections from this computer. This can't be undone.</p>
+        <button id="delete-data" type="button" class="danger">Delete my data</button>
+      </section>
     </section>
 
     <footer>Insights about the data shown here, not financial, tax or investment advice.</footer>
   </main>
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=2"></script>
 </body>
 </html>
