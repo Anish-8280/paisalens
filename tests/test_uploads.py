@@ -177,7 +177,8 @@ def test_password_protected_pdf_asks_for_the_password():
     ("UPI/DR/12345/NEHA GUPTA/HDFC/neha@oksbi/Lunch", "debit", ("Neha Gupta", "p2p", "People")),
     ("UPI-ZOMATO LTD-zomato@hdfc-HDFC0000001-99-ORDER", "debit", ("Zomato", "purchase", "Food Delivery")),
     ("BY TRANSFER FROM SOMEONE", "credit", ("By Transfer From Someone", "income", "Other Income")),
-    ("NEFT CR-SBIN-ACME-SALARY OCT", "credit", ("Neft Cr Sbin Acme Salary Oct", "income", "Salary")),
+    ("NEFT CR-SBIN-ACME-SALARY OCT", "credit", ("Acme", "income", "Salary")),
+    ("NEFT CR-SAMP0000123-NORTHWIND LABS PVT LTD-SALARY", "credit", ("Northwind Labs", "income", "Salary")),
 ])
 def test_real_world_narrations(narration, direction, expected):
     assert classify(narration, direction) == expected

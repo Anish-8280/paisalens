@@ -86,7 +86,7 @@ def classify(narration: str, direction: str, self_names: frozenset[str] = frozen
     if rail == "INTEREST":
         return "Interest", "income", "Interest"
     if direction == "credit" and "SALARY" in upper:
-        return clean_name(parts[-1]), "income", "Salary"
+        return clean_name(_salary_payer(narration)), "income", "Salary"
     if rail.startswith(("ACH", "NACH")) and ("SIP" in upper or "MF" in upper or "MUTUAL" in upper):
         return clean_name(parts[1] if len(parts) > 1 else "Mutual Fund"), "investment", "Investments"
 
@@ -111,6 +111,16 @@ def classify(narration: str, direction: str, self_names: frozenset[str] = frozen
     if direction == "credit":
         return clean_name(payee), "income", "Other Income"
     return clean_name(payee), "purchase", "Other"
+
+
+def _salary_payer(narration: str) -> str:
+    """The employer: the last field that isn't the salary label, a payment rail or a reference code."""
+    fields = [field.strip() for field in re.split(r"[/-]", narration)]
+    for field in reversed(fields):
+        upper = field.upper()
+        if field and "SALARY" not in upper and not re.search(r"\d", field) and upper.split()[0] not in TRANSFER_RAILS:
+            return field
+    return narration
 
 
 def _upi_payee(parts: list[str]) -> str:
